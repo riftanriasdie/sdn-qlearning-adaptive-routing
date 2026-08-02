@@ -206,7 +206,8 @@ sdn-qlearning-adaptive-routing/
 ├── controller/                           # Ryu SDN controller
 │   ├── controller_qlearning.py           # ← Q-Learning (UTAMA)
 │   ├── controller_dijkstra.py            # ← Dijkstra baseline
-│   └── index.html                        # Web UI dashboard (port 9000)
+│   ├── index.html                        # Web UI dashboard (port 9000)
+│   └── requirements.txt                  # Dependensi Python (ryu, networkx, dll)
 │
 ├── mininet/                              # Topologi & emulator
 │   ├── topology_qlearning.py             # ← Topologi Q-Learning (UTAMA)
