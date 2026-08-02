@@ -133,6 +133,10 @@ konflik flow rule antara traffic Q-Learning dan traffic monitoring:
 
 ### Parameter Link Inter-Switch
 
+Penelitian ini **tidak berfokus pada bandwidth**, sehingga topologi yang digunakan bersifat **homogen** — setiap inter-switch link memiliki kapasitas bandwidth yang sama. Karena cost setiap link bernilai sama (cost = 1), Dijkstra pada controller baseline menghitung jalur berdasarkan **jumlah hop minimum**, bukan bandwidth. Ini ekivalen dengan perilaku OSPF standar pada jaringan dengan semua link berkapasitas seragam.
+
+Parameter yang diukur dan dioptimasi adalah **latency, jitter, dan packet loss** yang diinjeksi via `tc netem` saat pengujian.
+
 | Link | Delay | Jitter | Loss |
 |---|---|---|---|
 | S1─S2, S1─S3, S1─S4 (access) | 2 ms | 0.5 ms | 0% |
@@ -140,8 +144,7 @@ konflik flow rule antara traffic Q-Learning dan traffic monitoring:
 | S5─S6, S5─S7, S6─S8 (core internal) | 2 ms | 0.5 ms | 0% |
 | S7─S9, S8─S9 (last-mile ke server) | 4 ms | 1.5 ms | 0% |
 
-> Kongesti diinjeksi **manual** via `tc netem` dari Mininet CLI saat pengujian.
-> Parameter link pada file Q-Learning **identik** dengan file OSPF untuk memastikan pengujian yang adil.
+> Parameter link pada file Q-Learning **identik** dengan file Dijkstra untuk memastikan pengujian yang adil.
 
 ---
 
@@ -227,23 +230,29 @@ sdn-qlearning-adaptive-routing/
 ### Sistem Operasi
 Ubuntu 20.04 atau 22.04 (direkomendasikan di VM atau bare metal — bukan WSL).
 
-### Dependensi
+### 1. Instalasi Mininet & Open vSwitch
 
 ```bash
-# Mininet
-sudo apt-get install mininet
+sudo apt-get update
+sudo apt-get install -y mininet openvswitch-switch
+```
 
-# Open vSwitch
-sudo apt-get install openvswitch-switch
+### 2. Instalasi Python Packages
 
-# Python packages
-pip install ryu networkx
-
-# Atau via requirements (jika tersedia)
+```bash
 pip install -r controller/requirements.txt
 ```
 
-### Verifikasi Instalasi
+Atau install manual satu per satu:
+
+```bash
+pip install ryu==4.34 networkx==2.6.3 webob==1.8.7 eventlet==0.30.2
+```
+
+> **Catatan**: Ryu tidak kompatibel dengan Python 3.10+. Gunakan Python 3.8 atau 3.9.
+> Cek versi Python dengan `python3 --version`.
+
+### 3. Verifikasi Instalasi
 
 ```bash
 # Cek Mininet
@@ -254,6 +263,9 @@ ryu-manager --version
 
 # Cek OVS
 ovs-vsctl --version
+
+# Cek NetworkX
+python3 -c "import networkx; print(networkx.__version__)"
 ```
 
 ---
@@ -323,8 +335,22 @@ sudo mn -c
 ## Skenario Pengujian
 
 Pengujian dilakukan dengan menginjeksi **kongesti manual** via `tc netem` dari Mininet CLI
-setelah sistem berjalan dan Q-Learning konvergen. Tiga skenario dirancang dengan tingkat
-keparahan kongesti yang berbeda pada link-link krusial.
+setelah sistem berjalan dan Q-Learning konvergen. Tiga skenario dirancang dengan kombinasi
+level injeksi yang berbeda pada link-link krusial.
+
+### Level Injeksi Kongesti
+
+Seluruh pengujian mengacu pada empat level injeksi berikut:
+
+| Level Injeksi | Delay (ms) | Jitter (ms) | Packet Loss (%) |
+|---|---|---|---|
+| 0 | 4–8 | 1–3 | 0 |
+| 1 | 33–34 | 9–9.5 | 0 |
+| 2 | 58–59 | 16–18 | 0.2 |
+| 3 | 94 | 28 | 3 |
+
+Level 0 adalah kondisi baseline jaringan (normal, tanpa injeksi).
+Level 1–3 diinjeksikan via `tc netem` dari Mininet CLI pada link-link krusial.
 
 > **Catatan port**: Q-Learning memiliki 2 host per switch (Hx + HMx), sehingga inter-switch
 > port dimulai dari **eth3**. Dijkstra hanya 1 host per switch, sehingga mulai dari **eth2**.
@@ -342,13 +368,13 @@ Diharapkan Q-Learning mulai mengalihkan traffic ke jalur alternatif (misal via S
 | S1-S2 | Non-krusial | 4 | 1 | 0 | Normal |
 | S1-S3 | Non-krusial | 4 | 1 | 0 | Normal |
 | S1-S4 | Non-krusial | 4 | 1 | 0 | Normal |
-| S2-S5 | **Krusial** | **33** | **9** | 0 | ⚠️ Injeksi 1 |
-| S3-S6 | **Krusial** | **33** | **9** | 0 | ⚠️ Injeksi 1 |
+| S2-S5 | **Krusial** | **33** | **9** | 0 | ⚠️ Level Injeksi 1 |
+| S3-S6 | **Krusial** | **33** | **9** | 0 | ⚠️ Level Injeksi 1 |
 | S4-S6 | Krusial | 6 | 2 | 0 | Normal |
 | S5-S6 | Non-krusial | 4 | 1 | 0 | Normal |
 | S5-S7 | Non-krusial | 4 | 1 | 0 | Normal |
 | S6-S8 | Non-krusial | 4 | 1 | 0 | Normal |
-| S7-S9 | **Krusial** | **34** | **12** | 0 | ⚠️ Injeksi 1 |
+| S7-S9 | **Krusial** | **34** | **12** | 0 | ⚠️ Level Injeksi 1 |
 | S8-S9 | Krusial | 8 | 3 | 0 | Normal |
 
 ```bash
@@ -376,14 +402,14 @@ yang menghindari link terdegradasi.
 | S1-S2 | Non-krusial | 4 | 1 | 0 | Normal |
 | S1-S3 | Non-krusial | 4 | 1 | 0 | Normal |
 | S1-S4 | Non-krusial | 4 | 1 | 0 | Normal |
-| S2-S5 | **Krusial** | **58** | **16** | **0.2** | 🔶 Injeksi 2 |
-| S3-S6 | **Krusial** | **58** | **16** | **0.2** | 🔶 Injeksi 2 |
-| S4-S6 | **Krusial** | **33** | **9** | 0 | ⚠️ Injeksi 1 |
+| S2-S5 | **Krusial** | **58** | **16** | **0.2** | 🔶 Level Injeksi 2 |
+| S3-S6 | **Krusial** | **58** | **16** | **0.2** | 🔶 Level Injeksi 2 |
+| S4-S6 | **Krusial** | **33** | **9** | 0 | ⚠️ Level Injeksi 1 |
 | S5-S6 | Non-krusial | 4 | 1 | 0 | Normal |
 | S5-S7 | Non-krusial | 4 | 1 | 0 | Normal |
 | S6-S8 | Non-krusial | 4 | 1 | 0 | Normal |
 | S7-S9 | Krusial | 8 | 3 | 0 | Normal |
-| S8-S9 | **Krusial** | **59** | **18** | **0.2** | 🔶 Injeksi 2 |
+| S8-S9 | **Krusial** | **59** | **18** | **0.2** | 🔶 Level Injeksi 2 |
 
 ```bash
 # Injeksi — Q-Learning (inter-switch mulai eth3)
@@ -412,14 +438,14 @@ Diharapkan Q-Learning mampu mengidentifikasi jalur yang masih layak digunakan.
 | S1-S2 | Non-krusial | 4 | 1 | 0 | Normal |
 | S1-S3 | Non-krusial | 4 | 1 | 0 | Normal |
 | S1-S4 | Non-krusial | 4 | 1 | 0 | Normal |
-| S2-S5 | **Krusial** | **33** | **9** | 0 | ⚠️ Injeksi 1 |
-| S3-S6 | **Krusial** | **58** | **16** | **0.2** | 🔶 Injeksi 2 |
-| S4-S6 | **Krusial** | **58** | **16** | **0.2** | 🔶 Injeksi 2 |
+| S2-S5 | **Krusial** | **33** | **9** | 0 | ⚠️ Level Injeksi 1 |
+| S3-S6 | **Krusial** | **58** | **16** | **0.2** | 🔶 Level Injeksi 2 |
+| S4-S6 | **Krusial** | **58** | **16** | **0.2** | 🔶 Level Injeksi 2 |
 | S5-S6 | Non-krusial | 4 | 1 | 0 | Normal |
 | S5-S7 | Non-krusial | 4 | 1 | 0 | Normal |
 | S6-S8 | Non-krusial | 4 | 1 | 0 | Normal |
-| S7-S9 | **Krusial** | **59** | **18** | **0.2** | 🔶 Injeksi 2 |
-| S8-S9 | **Krusial** | **94** | **28** | **3** | 🔴 Injeksi 3 |
+| S7-S9 | **Krusial** | **59** | **18** | **0.2** | 🔶 Level Injeksi 2 |
+| S8-S9 | **Krusial** | **94** | **28** | **3** | 🔴 Level Injeksi 3 |
 
 ```bash
 # Injeksi — Q-Learning (inter-switch mulai eth3)
