@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>SDN Q-Learning Monitor</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+      border-bottom: 3px solid #3949ab;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.5px;
+    }
+    header h1 span { color: #90caf9; }
+    #conn-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: #e3f2fd;
+    }
+    #conn-dot {
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      background: #aaa;
+      transition: background 0.4s;
+    }
+    #conn-dot.online  { background: #69f0ae; box-shadow: 0 0 7px #69f0ae; }
+    #conn-dot.offline { background: #ff5252; box-shadow: 0 0 7px #ff5252; }
+
+    /* ── Layout ── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 0;
+      height: calc(100vh - 51px);
+    }
+
+    /* ── Panel Kiri ── */
+    #status-panel {
+      grid-column: 1;
+      grid-row: 1 / 3;
+      background: #ffffff;
+      border-right: 1px solid #dde1ea;
+      padding: 16px 14px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.06);
+    }
+    .panel-title {
+      font-size: 0.68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: #7986cb;
+      margin-bottom: 2px;
+    }
+    .stat-card {
+      background: #f5f7ff;
+      border: 1px solid #dde1ea;
+      border-left: 4px solid #3949ab;
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .stat-card .label {
+      font-size: 0.70rem;
+      color: #6b7280;
+      margin-bottom: 3px;
+      font-weight: 600;
+    }
+    .stat-card .value {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #1a237e;
+    }
+    .stat-card .value.green  { color: #2e7d32; }
+    .stat-card .value.yellow { color: #e65100; }
+    .stat-card .value.blue   { color: #1565c0; }
+    .stat-card .value.orange { color: #bf360c; }
+
+    /* Epsilon bar */
+    #eps-bar-wrap {
+      background: #e8eaf6;
+      border-radius: 4px;
+      height: 7px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    #eps-bar {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #43a047, #fb8c00, #e53935);
+      transition: width 0.5s;
+    }
+
+    /* Active path box */
+    #active-path-box {
+      background: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      border-left: 4px solid #2e7d32;
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    #active-path-text {
+      font-size: 0.82rem;
+      color: #1b5e20;
+      font-weight: 700;
+      word-break: break-all;
+      line-height: 1.7;
+    }
+
+    /* Legend */
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.76rem;
+      color: #374151;
+      margin-bottom: 5px;
+    }
+    .legend-dot  { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
+    .legend-line { width: 26px; height: 4px; border-radius: 2px; flex-shrink: 0; }
+
+    /* ── Topology canvas ── */
+    #topology-wrap {
+      grid-column: 2;
+      grid-row: 1;
+      position: relative;
+      background: #ffffff;
+      border-bottom: 1px solid #dde1ea;
+      height: 400px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    #mynetwork { width: 100%; height: 100%; }
+    #last-update {
+      position: absolute;
+      bottom: 7px;
+      right: 12px;
+      font-size: 0.68rem;
+      color: #9ca3af;
+    }
+
+    /* ── Q-Table panel ── */
+    #qtable-wrap {
+      grid-column: 2;
+      grid-row: 2;
+      background: #ffffff;
+      overflow-y: auto;
+      padding: 14px 18px;
+    }
+    #qtable-wrap h3 {
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #3949ab;
+      margin-bottom: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.80rem;
+    }
+    thead th {
+      background: #e8eaf6;
+      color: #3949ab;
+      font-weight: 800;
+      text-align: left;
+      padding: 8px 11px;
+      border-bottom: 2px solid #9fa8da;
+      position: sticky;
+      top: 0;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    tbody tr { border-bottom: 1px solid #f0f2f5; }
+    tbody tr:hover { background: #f5f7ff; }
+    tbody td { padding: 6px 11px; color: #374151; }
+
+    /* Pembatas antar switch — bold border atas */
+    tbody tr.sw-separator td {
+      border-top: 2px solid #9fa8da;
+    }
+
+    /* Baris jalur aktif */
+    tbody tr.row-active td {
+      color: #1b5e20;
+      font-weight: 700;
+      background: linear-gradient(90deg, #c8e6c9 0%, #e8f5e9 100%);
+      box-shadow: inset 3px 0 0 #2e7d32;
+    }
+    tbody tr.row-active td:first-child::before {
+      content: "▶ ";
+      color: #2e7d32;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 10px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+    .badge-active { background: #2e7d32; color: #ffffff; }
+    .badge-best   { background: #e65100; color: #ffffff; }
+
+    /* Q-value coloring */
+    .qv-good   { color: #2e7d32; font-weight: 700; }
+    .qv-mid    { color: #e65100; font-weight: 700; }
+    .qv-bad    { color: #c62828; font-weight: 700; }
+    .qv-normal { color: #374151; }
+
+    /* Reward coloring */
+    .rw-good   { color: #2e7d32; }
+    .rw-mid    { color: #e65100; }
+    .rw-bad    { color: #c62828; }
+
+    /* ── Tooltip ── */
+    #tooltip {
+      position: fixed;
+      background: #ffffff;
+      border: 1px solid #9fa8da;
+      border-radius: 8px;
+      padding: 11px 15px;
+      font-size: 0.80rem;
+      color: #374151;
+      pointer-events: none;
+      z-index: 9999;
+      display: none;
+      min-width: 190px;
+      box-shadow: 0 6px 24px rgba(57,73,171,0.15);
+      line-height: 1.9;
+    }
+    #tooltip .tt-title {
+      font-weight: 800;
+      color: #1a237e;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #e8eaf6;
+      padding-bottom: 5px;
+    }
+    #tooltip .tt-row { display: flex; justify-content: space-between; gap: 18px; }
+    #tooltip .tt-key { color: #6b7280; }
+    #tooltip .tt-val { color: #1a237e; font-weight: 700; }
+    #tooltip .tt-active { color: #1565c0; font-weight: 800; margin-top: 5px; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #f0f2f5; }
+    ::-webkit-scrollbar-thumb { background: #c5cae9; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════ HEADER -->
+<header>
+  <h1>SDN <span>Q-Learning</span> Network Monitor</h1>
+  <div id="conn-indicator">
+    <div id="conn-dot"></div>
+    <span id="conn-label">Menghubungkan...</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════ MAIN GRID -->
+<div class="main-grid">
+
+  <!-- ── PANEL KIRI ── -->
+  <aside id="status-panel">
+
+    <div class="panel-title">Status Sistem</div>
+
+    <div class="stat-card">
+      <div class="label">Mode RL</div>
+      <div class="value" id="rl-mode">Warmup</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="label">Epsilon (Eksplorasi)</div>
+      <div class="value blue" id="eps-val">1.000</div>
+      <div id="eps-bar-wrap"><div id="eps-bar" style="width:100%"></div></div>
+    </div>
+
+    <div class="stat-card">
+      <div class="label">Jumlah Switch</div>
+      <div class="value" id="sw-count">—</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="label">Jumlah Link Aktif</div>
+      <div class="value" id="link-count">—</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="label">Server Switch (DPID)</div>
+      <div class="value orange" id="srv-dpid">—</div>
+    </div>
+
+    <div id="active-path-box">
+      <div class="panel-title" style="margin-bottom:6px;color:#2e7d32">Jalur Aktif RL</div>
+      <div id="active-path-text">Menunggu konvergensi...</div>
+    </div>
+
+    <!-- Legend -->
+    <div>
+      <div class="panel-title" style="margin-bottom:8px">Legend</div>
+      <div class="legend-row">
+        <img src="" id="leg-sw" width="26" height="16" style="flex-shrink:0">
+        Switch (S1–S9)
+      </div>
+      <div class="legend-row">
+        <img src="" id="leg-sw-srv" width="26" height="16" style="flex-shrink:0; display:none">
+      </div>
+      <div class="legend-row">
+        <img src="" id="leg-server" width="18" height="26" style="flex-shrink:0">
+        Server (H9)
+      </div>
+      <div class="legend-row" style="margin-top:6px">
+        <div class="legend-line" style="background:#00c853"></div>
+        Jalur aktif RL (tebal)
+      </div>
+      <div class="legend-row">
+        <div class="legend-line" style="background:#fb8c00;height:3px"></div>
+        Link best Q-value (tanpa active)
+      </div>
+      <div class="legend-row">
+        <div class="legend-line" style="background:#43a047"></div>
+        Link sehat (loss 0%)
+      </div>
+      <div class="legend-row">
+        <div class="legend-line" style="background:#e65100"></div>
+        Link waspada (1–5%)
+      </div>
+      <div class="legend-row">
+        <div class="legend-line" style="background:#c62828"></div>
+        Link macet (&gt;5%)
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── TOPOLOGI ── -->
+  <div id="topology-wrap">
+    <div id="mynetwork"></div>
+    <div id="last-update">Belum ada data</div>
+  </div>
+
+  <!-- ── Q-TABLE ── -->
+  <div id="qtable-wrap">
+    <h3>Q-Table — Nilai Q per Switch &amp; Port</h3>
+    <table id="qtable">
+      <thead>
+        <tr>
+          <th>Switch</th>
+          <th>Port</th>
+          <th>Next Hop</th>
+          <th>Reward</th>
+          <th>Q-Value</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="qtable-body">
+        <tr><td colspan="6" style="color:#9ca3af;text-align:center;padding:20px">
+          Menunggu data dari controller...
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════ TOOLTIP -->
+<div id="tooltip"></div>
+
+<!-- ═══════════════════════════════════════ SCRIPT -->
+<script>
+// ─────────────────────────────────────────────────────
+// KONFIGURASI
+// ─────────────────────────────────────────────────────
+const API_URL = 'http://192.168.75.128:8080/api/topology';
+const POLL_MS = 2000;
+
+// Posisi node — layout HORIZONTAL, S1 di KIRI, SERVER di KANAN
+// Sumbu X: kanan = positif, kiri = negatif
+// Sumbu Y: atas = negatif, bawah = positif
+const NODE_POSITIONS = {
+  1:  { x: -500, y:    0 },   // S1  — paling kiri (sumber traffic)
+  2:  { x: -250, y: -160 },   // S2  — kiri atas
+  3:  { x: -250, y:    0 },   // S3  — kiri tengah
+  4:  { x: -250, y:  160 },   // S4  — kiri bawah
+  5:  { x:    0, y: -160 },   // S5  — tengah atas
+  6:  { x:    0, y:  100 },   // S6  — tengah bawah
+  7:  { x:  200, y: -100 },   // S7  — kanan atas
+  8:  { x:  200, y:  100 },   // S8  — kanan bawah
+  9:  { x:  400, y:    0 },   // S9  — server_dpid (kanan)
+  99: { x:  580, y:    0 },   // SERVER — paling kanan
+};
+
+// ─────────────────────────────────────────────────────
+// IKON SVG (base64) — dipakai sebagai image node
+// ─────────────────────────────────────────────────────
+
+// Switch icon: kotak dengan port-port kecil di depan
+const SVG_SWITCH = `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="32" viewBox="0 0 52 32">
+  <!-- Body switch -->
+  <rect x="2" y="6" width="48" height="20" rx="3" ry="3"
+        fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <!-- Highlight atas -->
+  <rect x="4" y="7" width="44" height="5" rx="2"
+        fill="#42a5f5" opacity="0.35"/>
+  <!-- Port-port kecil (6 port) -->
+  <rect x="6"  y="14" width="4" height="6" rx="1" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.8"/>
+  <rect x="12" y="14" width="4" height="6" rx="1" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.8"/>
+  <rect x="18" y="14" width="4" height="6" rx="1" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.8"/>
+  <rect x="24" y="14" width="4" height="6" rx="1" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.8"/>
+  <rect x="30" y="14" width="4" height="6" rx="1" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.8"/>
+  <rect x="36" y="14" width="4" height="6" rx="1" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.8"/>
+  <!-- LED indikator -->
+  <circle cx="43" cy="11" r="1.8" fill="#69f0ae"/>
+  <circle cx="47" cy="11" r="1.8" fill="#69f0ae"/>
+</svg>`;
+
+// Switch server_dpid: SAMA dengan switch biasa (biru)
+const SVG_SWITCH_SRV = SVG_SWITCH;
+
+// Server icon: rack server — warna oranye
+const SVG_SERVER = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="52" viewBox="0 0 36 52">
+  <!-- Rack body -->
+  <rect x="2" y="2" width="32" height="48" rx="3" ry="3"
+        fill="#e65100" stroke="#bf360c" stroke-width="1.5"/>
+  <!-- Unit 1 -->
+  <rect x="4" y="5"  width="28" height="9" rx="2" fill="#f4511e" stroke="#e64a19" stroke-width="0.8"/>
+  <circle cx="28" cy="9.5" r="1.8" fill="#b9f6ca"/>
+  <rect x="7" y="7.5" width="14" height="3.5" rx="1" fill="#ffccbc" opacity="0.7"/>
+  <!-- Unit 2 -->
+  <rect x="4" y="17" width="28" height="9" rx="2" fill="#f4511e" stroke="#e64a19" stroke-width="0.8"/>
+  <circle cx="28" cy="21.5" r="1.8" fill="#b9f6ca"/>
+  <rect x="7" y="19.5" width="14" height="3.5" rx="1" fill="#ffccbc" opacity="0.7"/>
+  <!-- Unit 3 -->
+  <rect x="4" y="29" width="28" height="9" rx="2" fill="#f4511e" stroke="#e64a19" stroke-width="0.8"/>
+  <circle cx="28" cy="33.5" r="1.8" fill="#ffee58"/>
+  <rect x="7" y="31.5" width="14" height="3.5" rx="1" fill="#ffccbc" opacity="0.7"/>
+  <!-- Unit 4 -->
+  <rect x="4" y="41" width="28" height="9" rx="2" fill="#f4511e" stroke="#e64a19" stroke-width="0.8"/>
+  <circle cx="28" cy="45.5" r="1.8" fill="#b9f6ca"/>
+  <rect x="7" y="43.5" width="14" height="3.5" rx="1" fill="#ffccbc" opacity="0.7"/>
+</svg>`;
+
+// Encode SVG ke data URL
+function svgToDataUrl(svg) {
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+const IMG_SWITCH     = svgToDataUrl(SVG_SWITCH);
+const IMG_SWITCH_SRV = svgToDataUrl(SVG_SWITCH_SRV);
+const IMG_SERVER     = svgToDataUrl(SVG_SERVER);
+
+// Isi gambar legend di panel kiri
+document.getElementById('leg-sw').src     = IMG_SWITCH;
+document.getElementById('leg-sw-srv').src = IMG_SWITCH_SRV;
+document.getElementById('leg-server').src = IMG_SERVER;
+
+// ─────────────────────────────────────────────────────
+// VIS-NETWORK SETUP
+// ─────────────────────────────────────────────────────
+const visNodes = new vis.DataSet();
+const visEdges = new vis.DataSet();
+const container = document.getElementById('mynetwork');
+const network = new vis.Network(container, { nodes: visNodes, edges: visEdges }, {
+  physics: { enabled: false },
+  interaction: { hover: true, tooltipDelay: 0 },
+  nodes: {
+    shape: 'image',
+    font: { color: '#1a237e', size: 14, face: 'Segoe UI',
+            bold: { color: '#1a237e', size: 14, face: 'Segoe UI' },
+            vadjust: 6, multi: 'html' },
+    borderWidth: 0,
+    shapeProperties: { useBorderWithImage: false }
+  },
+  edges: {
+    smooth: false,
+    arrows: { to: { enabled: true, scaleFactor: 0.55 } },
+    font: { color: '#374151', size: 11, face: 'Segoe UI', align: 'top',
+            strokeWidth: 3, strokeColor: '#ffffff' }
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// TOOLTIP KUSTOM
+// ─────────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+let edgeDataMap = {};
+
+network.on('hoverEdge', function(params) {
+  const eData = edgeDataMap[params.edge];
+  if (!eData) return;
+
+  const toLabel = eData.to === 99 ? 'SERVER' : 'S' + eData.to;
+  const activeLine = eData.is_active
+    ? '<div class="tt-active">✅ JALUR AKTIF RL</div>' : '';
+
+  tooltip.innerHTML = `
+    <div class="tt-title">S${eData.from} ↔ ${toLabel}</div>
+    <div class="tt-row">
+      <span class="tt-key">Latency</span>
+      <span class="tt-val">${eData.lat} ms</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-key">Jitter</span>
+      <span class="tt-val">${eData.jit} ms</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-key">Loss</span>
+      <span class="tt-val">${eData.loss} %</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-key">Reward</span>
+      <span class="tt-val">${eData.rew}</span>
+    </div>
+    ${activeLine}
+  `;
+  tooltip.style.display = 'block';
+});
+
+network.on('blurEdge',  () => { tooltip.style.display = 'none'; });
+network.on('hoverNode', () => { tooltip.style.display = 'none'; });
+
+document.addEventListener('mousemove', e => {
+  if (tooltip.style.display === 'block') {
+    tooltip.style.left = (e.clientX + 16) + 'px';
+    tooltip.style.top  = (e.clientY + 16) + 'px';
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// HELPER: warna edge
+// ─────────────────────────────────────────────────────
+function edgeColor(loss, isActive) {
+  if (isActive)              return '#00c853';   // hijau muda aktif
+  if (loss > 5)              return '#c62828';   // merah macet
+  if (loss > 0 && loss <= 5) return '#e65100';   // oranye waspada
+  return '#43a047';                              // hijau muda normal
+}
+
+// ─────────────────────────────────────────────────────
+// UPDATE TOPOLOGI
+// ─────────────────────────────────────────────────────
+function updateTopology(data) {
+  // Buat lookup: edge dari arah sebaliknya untuk mengisi label yang kosong
+  // Key: "to-from", Value: {lat, jit, loss, rew, q_val}
+  const reverseEdgeMap = {};
+  data.edges.forEach(e => {
+    reverseEdgeMap[`${e.to}-${e.from}`] = e;
+  });
+
+  // Nodes — pakai ikon SVG
+  const nodeUpdates = data.nodes.map(n => {
+    const pos        = NODE_POSITIONS[n.id] || { x: 0, y: 0 };
+    const isServer99 = n.id === 99;
+    const isSrvDpid  = n.id === data.server_dpid;
+    const imgUrl     = isServer99 ? IMG_SERVER
+                     : isSrvDpid  ? IMG_SWITCH_SRV
+                     :              IMG_SWITCH;
+    return {
+      id:    n.id,
+      label: `<b>${n.label}</b>`,
+      x: pos.x, y: pos.y,
+      fixed: { x: true, y: true },
+      image: imgUrl,
+      shape: 'image',
+      size:  isServer99 ? 20 : 22,
+      font:  { color: '#1a237e', size: 14, multi: 'html', vadjust: 8 }
+    };
+  });
+  visNodes.update(nodeUpdates);
+
+  // Edges — merge pasangan bidirectional menjadi satu link
+  edgeDataMap = {};
+
+  // Bangun set switch yang punya ACTIVE di salah satu port-nya
+  const switchesWithActive = new Set();
+  if (data.q_table) {
+    data.q_table.forEach(r => {
+      if (r.is_active) {
+        const swId = parseInt(r.sw.replace('S', ''));
+        if (!isNaN(swId)) switchesWithActive.add(swId);
+      }
+    });
+  }
+
+  // Helper: cek apakah edge ini active
+  function isEdgeActive(fromId, toId) {
+    const edge = data.edges.find(e => e.from === fromId && e.to === toId);
+    return edge?.is_active || false;
+  }
+
+  // Helper: cek apakah edge ini best (hanya jika switch-nya tidak punya active)
+  function isEdgeBest(fromId, toId) {
+    // Jika switch sudah punya active di port manapun, best-nya tidak ditampilkan
+    if (switchesWithActive.has(fromId)) return false;
+    
+    if (!data.q_table) return false;
+    const row = data.q_table.find(r => {
+      const swId = parseInt(r.sw.replace('S', ''));
+      const nhStr = r.next_hop.replace('S', '');
+      const nhId = parseInt(nhStr);
+      return swId === fromId && nhId === toId && r.is_best;
+    });
+    return !!row;
+  }
+
+  // Buat map pasangan edge: key = "min-max" (sorted), value = [edge1, edge2]
+  const edgePairs = new Map();
+  data.edges.forEach(e => {
+    const min = Math.min(e.from, e.to);
+    const max = Math.max(e.from, e.to);
+    const key = `${min}-${max}`;
+    if (!edgePairs.has(key)) edgePairs.set(key, []);
+    edgePairs.get(key).push(e);
+  });
+
+  const edgeUpdates = [];
+  edgePairs.forEach((pair, key) => {
+    const [min, max] = key.split('-').map(Number);
+    
+    const edge_fw = pair.find(e => e.from === min && e.to === max);
+    const edge_bw = pair.find(e => e.from === max && e.to === min);
+
+    const fw_active = isEdgeActive(min, max);
+    const bw_active = isEdgeActive(max, min);
+    const fw_best   = isEdgeBest(min, max);
+    const bw_best   = isEdgeBest(max, min);
+
+    let useEdge, arrowFrom, arrowTo, isActive, isBest;
+    // actualFrom/actualTo: posisi node untuk edge di vis-network
+    // Selalu gunakan arrows: { to: true } dengan swap from/to jika perlu
+    let actualFrom = min;
+    let actualTo   = max;
+
+    if (fw_active) {
+      // Active min → max
+      useEdge = edge_fw;
+      actualFrom = min; actualTo = max;
+      isActive = true; isBest = false;
+    } else if (bw_active) {
+      // Active max → min: swap agar panah tetap { to: true }
+      useEdge = edge_bw;
+      actualFrom = max; actualTo = min;
+      isActive = true; isBest = false;
+    } else if (fw_best && !bw_best) {
+      // Best min → max
+      useEdge = edge_fw || edge_bw;
+      actualFrom = min; actualTo = max;
+      isActive = false; isBest = true;
+    } else if (bw_best && !fw_best) {
+      // Best max → min: swap
+      useEdge = edge_bw || edge_fw;
+      actualFrom = max; actualTo = min;
+      isActive = false; isBest = true;
+    } else if (fw_best && bw_best) {
+      // Kedua arah best — pilih forward
+      useEdge = edge_fw || edge_bw;
+      actualFrom = min; actualTo = max;
+      isActive = false; isBest = true;
+    } else {
+      // Link biasa, tidak ada panah
+      useEdge = edge_fw || edge_bw;
+      actualFrom = min; actualTo = max;
+      isActive = false; isBest = false;
+    }
+
+    // Panah: active/best → { to: true } saja, biasa → tidak ada panah
+    // Khusus ke SERVER selalu pakai panah
+    let arrows;
+    if (max === 99) {
+      arrows = { to: { enabled: true, scaleFactor: 0.55 } };
+    } else if (isActive || isBest) {
+      arrows = { to: { enabled: true, scaleFactor: 0.55 } };
+    } else {
+      arrows = { to: { enabled: false }, from: { enabled: false } };
+    }
+
+    const secondary = (useEdge === edge_fw) ? edge_bw : edge_fw;
+    let dispLat  = useEdge?.lat  || secondary?.lat  || 0;
+    let dispJit  = useEdge?.jit  || secondary?.jit  || 0;
+    let dispLoss = useEdge?.loss || secondary?.loss || 0;
+    let dispRew  = useEdge?.rew  || secondary?.rew  || 0;
+
+    let color, width;
+    if (isActive) {
+      color = '#00c853';
+      width = 5;
+    } else if (isBest) {
+      color = '#fb8c00';
+      width = 4;
+    } else {
+      color = edgeColor(dispLoss, false);
+      width = 2;
+    }
+
+    const label = max === 99 ? '' : `${dispLat}ms | ${dispLoss}%`;
+
+    const eId = key;
+    edgeDataMap[eId] = {
+      from: actualFrom, to: actualTo,
+      lat: dispLat, jit: dispJit, loss: dispLoss, rew: dispRew,
+      is_active: isActive
+    };
+
+    edgeUpdates.push({
+      id: eId,
+      from: actualFrom,
+      to: actualTo,
+      color: { color, highlight: color, hover: '#69f0ae' },
+      width,
+      smooth: { type: 'curvedCW', roundness: 0.15 },
+      arrows,
+      dashes: false,
+      label,
+      font: { color: '#374151', size: 10, align: 'top',
+              strokeWidth: 3, strokeColor: '#ffffff' }
+    });
+  });
+
+  visEdges.update(edgeUpdates);
+
+  // Hapus edge yang sudah tidak ada
+  const currentIds = new Set(edgeUpdates.map(e => e.id));
+  visEdges.getIds().forEach(id => {
+    if (!currentIds.has(id)) visEdges.remove(id);
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// UPDATE PANEL STATUS
+// ─────────────────────────────────────────────────────
+function updateStatus(data) {
+  const modeEl = document.getElementById('rl-mode');
+  if (data.rl_ready) {
+    modeEl.textContent = 'RL Aktif';
+    modeEl.className   = 'value green';
+  } else {
+    modeEl.textContent = 'Warmup (Shortest Path)';
+    modeEl.className   = 'value yellow';
+  }
+
+  const eps = data.epsilon;
+  document.getElementById('eps-val').textContent = eps.toFixed(3);
+  document.getElementById('eps-bar').style.width = (eps * 100) + '%';
+
+  document.getElementById('sw-count').textContent =
+    data.nodes.filter(n => n.id !== 99).length;
+  document.getElementById('link-count').textContent =
+    data.edges.filter(e => e.is_active).length;
+
+  document.getElementById('srv-dpid').textContent =
+    data.server_dpid ? `S${data.server_dpid}` : 'Belum terdeteksi';
+
+  document.getElementById('active-path-text').textContent =
+    data.active_path || 'Menunggu konvergensi...';
+
+  const d = new Date(data.timestamp * 1000);
+  document.getElementById('last-update').textContent =
+    'Update: ' + d.toLocaleTimeString('id-ID');
+}
+
+// ─────────────────────────────────────────────────────
+// UPDATE Q-TABLE
+// ─────────────────────────────────────────────────────
+function rewardClass(r) {
+  if (r >= 0)    return 'rw-good';
+  if (r >= -20)  return 'rw-mid';
+  return 'rw-bad';
+}
+function qvalClass(q) {
+  if (q > -10)  return 'qv-good';
+  if (q > -50)  return 'qv-mid';
+  return 'qv-bad';
+}
+
+function updateQTable(rows) {
+  const tbody = document.getElementById('qtable-body');
+  if (!rows || rows.length === 0) return;
+
+  let html = '';
+  let lastSw = null;
+
+  rows.forEach(r => {
+    const isSeparator = (lastSw !== null && lastSw !== r.sw);
+    lastSw = r.sw;
+
+    const rowClass = r.is_active
+      ? (isSeparator ? 'row-active sw-separator' : 'row-active')
+      : (isSeparator ? 'sw-separator' : '');
+
+    let badge = '';
+    if (r.is_active)      badge = '<span class="badge badge-active">ACTIVE</span>';
+    else if (r.is_best)   badge = '<span class="badge badge-best">BEST</span>';
+
+    const rwVal = r.reward !== undefined ? r.reward : 0;
+
+    // Warna font per baris:
+    //   ACTIVE  → hijau (dihandle oleh CSS row-active)
+    //   BEST    → warna default (badge oranye tetap ada)
+    //   kosong  → biru #1565c0 di semua kolom termasuk reward & q-value
+    let fontColor = '';
+    let rewardCol, qvalCol;
+    if (r.is_active) {
+      // biarkan CSS row-active yang handle
+      rewardCol = `class="${rewardClass(rwVal)}"`;
+      qvalCol   = `class="${qvalClass(r.q_val)}"`;
+    } else if (r.is_best) {
+      // best: font biru seperti baris kosong, badge oranye tetap
+      fontColor = 'style="color:#1565c0"';
+      rewardCol = 'style="color:#1565c0"';
+      qvalCol   = 'style="color:#1565c0"';
+    } else {
+      // kosong: semua kolom biru
+      fontColor = 'style="color:#1565c0"';
+      rewardCol = 'style="color:#1565c0"';
+      qvalCol   = 'style="color:#1565c0"';
+    }
+
+    html += `
+      <tr class="${rowClass}">
+        <td ${fontColor}><strong>${r.sw}</strong></td>
+        <td ${fontColor}>${r.port}</td>
+        <td ${fontColor}>${r.next_hop}</td>
+        <td ${rewardCol}>${rwVal}</td>
+        <td ${qvalCol}>${r.q_val}</td>
+        <td>${badge}</td>
+      </tr>`;
+  });
+
+  tbody.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────
+// POLLING UTAMA
+// ─────────────────────────────────────────────────────
+const connDot   = document.getElementById('conn-dot');
+const connLabel = document.getElementById('conn-label');
+let failCount = 0;
+
+function poll() {
+  fetch(API_URL)
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      failCount = 0;
+      connDot.className     = 'online';
+      connLabel.textContent = 'Terhubung ke Controller';
+
+      updateTopology(data);
+      updateStatus(data);
+      updateQTable(data.q_table);
+    })
+    .catch(err => {
+      failCount++;
+      connDot.className     = 'offline';
+      connLabel.textContent = `Offline (${failCount}x gagal)`;
+      console.warn('Gagal fetch:', err);
+    });
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

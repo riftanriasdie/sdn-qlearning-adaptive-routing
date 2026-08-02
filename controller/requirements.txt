@@ -1,0 +1,14 @@
+# Requirements untuk Controller Ryu — SDN Q-Learning Adaptive Routing
+#
+# Instalasi:
+#   pip install -r requirements.txt
+#
+# Catatan:
+#   - ryu dan webob harus diinstall via pip (bukan apt)
+#   - networkx digunakan untuk kalkulasi graf topologi (Dijkstra)
+#   - webob sudah dibundle dengan ryu, dicantumkan eksplisit untuk kejelasan
+
+ryu==4.34
+networkx==2.6.3
+webob==1.8.7
+eventlet==0.30.2
